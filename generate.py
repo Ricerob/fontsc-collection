@@ -1,50 +1,110 @@
-from requests_html import HTMLSession
-import csv
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from tqdm import tqdm
+import requests
 import os
+import csv
 
-def collect_font_data(link):
+def collect_font_data(link, browser):
+    font_info = []
+    base_link = f'https://www.fontspace.com{link}'
+
     # Render font page
+    browser.get(base_link)
+    html_content = browser.page_source
+    soup = BeautifulSoup(html_content, 'html.parser')
 
     # Collect data
     # {name: , author: , img: , tags: [], license: }
-    print(link)
+    # Collect downloads to get popularity metrics
+    try:
+        section = soup.find('section')
+        name = section.find('h1').text[:-5]
 
-def render_letter_fonts(url):
-    base_link = 'https://www.fontsc.com'
-    session = HTMLSession()
+        author = soup.find('a', {"class": "gray-text"}).text
+
+        img = "N/A"
+        hero_img = soup.find('img', {'rel': name})
+        regular_img = soup.find('img', {'alt': f'{name[:-5]} Regular'})
+        first_lazy_img = soup.find('img', {'class': 'v-lazy-image'})
+        if hero_img:
+            img = hero_img['src']
+        elif regular_img:
+            img = regular_img['src']
+        elif first_lazy_img:
+            img = first_lazy_img['src']
+
+        tag_list = soup.find_all('li', {'class': 'real-topic'})
+        tags = []
+        for tag in tag_list:
+            tags.append(tag.find('h4').text)
+
+        license_div = soup.find('div', {'class': 'license-title'})
+        license_text = license_div.find('a').text
+
+        return {
+            'name': name,
+            'author': author,
+            'img': img,
+            'license': license_text,
+            'tags': tags
+        }
+    except AttributeError:
+        print(f'? Failed collecting data for ${link}')
+    return
+    
+
+def render_letter_fonts(url, browser):
+    info = []
+
+    browser.get(url)
 
     # Render page
-    r = session.get(url)
-    r.html.render(sleep=3, keep_page=True, scrolldown=8)
+    html_content = browser.page_source
+    soup = BeautifulSoup(html_content, 'html.parser')
 
     # Grab font list
-    divs = r.html.find('a')
+    links = soup.find_all('a', {'class': 'font-image'})
 
     # Grab font data from list
-    print(divs)
+    for link in links:
+        info.append(collect_font_data(link['href'], browser))
 
     # Return 
-    session.close()
+    return info
 
 if __name__ == "__main__":
-    # This dictonary correlates to how many pages of 50 fonts there are per letter
+    # This dictonary correlates to how many pages of fonts there are per letter
     # There is a much better way to do this programmatically, if you're up for that
-    letter_length_dict = {'a': 10, 'b': 9, 'c': 9, 'd': 7, 'e': 4, 'f': 7, 'g': 6, 'h': 5, 'i': 3, 'j': 4, 'k': 13, 'l': 6, 'm': 9, 'n': 4, 'o': 4, 'q': 2, 'r': 6, 's': 12, 't': 6, 'u': 2, 'v': 3, 'w': 4, 'x': 1, 'y': 2, 'z': 2, 'nums': 7}
+    letter_length_dict = {'a': 20, 'b': 254, 'c': 207, 'd': 139, 'e': 68, 'f': 110, 'g': 111, 'h': 135, 'i': 34, 'j': 62, 'k': 108, 'l': 111, 'm': 205, 'n': 59, 'o': 42, 'q': 23, 'r': 137, 's': 284, 't': 121, 'u': 19, 'v': 62, 'w': 69, 'x': 8, 'y': 19, 'z': 20, 'other': 20}
 
-    fontsc_link = 'https://www.fontsc.com/font/list-alphabetical/'
+    fontspace_link = 'https://www.fontspace.com/list/'
+
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--disable-gpu')
+    options.binary_location = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
+    browser = webdriver.Chrome(options=options)
 
     if not os.path.exists('./data'):
         os.makedirs('./data')
 
-    for letter in letter_length_dict:
+    for letter in tqdm(letter_length_dict, desc=f'Collection Progress'):
         letter_data = []
         letter_length = letter_length_dict[letter]
-        for x in range(0, 1):
-            url = f"{fontsc_link}letter-{letter}?ls=50&page={x}"
-            letter_data = render_letter_fonts(url)
-        # with open(f"data/{letter}.csv", 'w', newline='') as file:
-        #     writer = csv.writer(file)
-        #     writer.writerows(letter_data)
+        inner_progress = tqdm(range(1, 2), desc=letter, leave=True)
+        for x in inner_progress:
+            url = f"{fontspace_link}{letter}?p={x}"
+            letter_data.extend(render_letter_fonts(url, browser))
+        with open(f"data/{letter}.csv", 'w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=['name', 'author', 'img', 'license', 'tags'])
+            writer.writeheader()
+            for row in letter_data:
+                try:
+                    writer.writerow(row)
+                except AttributeError:
+                    print(f'Failed writing a row to {letter}.csv')
+        inner_progress.reset()
         break
-        
+    browser.quit()
     
