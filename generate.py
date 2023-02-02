@@ -16,7 +16,6 @@ def collect_font_data(link, browser):
 
     # Collect data
     # {name: , author: , img: , tags: [], license: }
-    # Collect downloads to get popularity metrics
     try:
         section = soup.find('section')
         name = section.find('h1').text[:-5]
@@ -39,6 +38,8 @@ def collect_font_data(link, browser):
         for tag in tag_list:
             tags.append(tag.find('h4').text)
 
+        downloads = int(soup.find('div', {'class': 'stat-label'}).text.replace(',', ''))
+
         license_div = soup.find('div', {'class': 'license-title'})
         license_text = license_div.find('a').text
 
@@ -47,10 +48,11 @@ def collect_font_data(link, browser):
             'author': author,
             'img': img,
             'license': license_text,
+            'downloads': downloads,
             'tags': tags
         }
     except AttributeError:
-        print(f'? Failed collecting data for ${link}')
+        print(f'? Failed collecting data for ${base_link}')
     return
     
 
@@ -76,7 +78,7 @@ def render_letter_fonts(url, browser):
 if __name__ == "__main__":
     # This dictonary correlates to how many pages of fonts there are per letter
     # There is a much better way to do this programmatically, if you're up for that
-    letter_length_dict = {'a': 20, 'b': 254, 'c': 207, 'd': 139, 'e': 68, 'f': 110, 'g': 111, 'h': 135, 'i': 34, 'j': 62, 'k': 108, 'l': 111, 'm': 205, 'n': 59, 'o': 42, 'q': 23, 'r': 137, 's': 284, 't': 121, 'u': 19, 'v': 62, 'w': 69, 'x': 8, 'y': 19, 'z': 20, 'other': 20}
+    letter_length_dict = {'b': 254, 'c': 207, 'd': 139, 'e': 68, 'f': 110, 'g': 111, 'h': 135, 'i': 34, 'j': 62, 'k': 108, 'l': 111, 'm': 205, 'n': 59, 'o': 42, 'q': 23, 'r': 137, 's': 284, 't': 121, 'u': 19, 'v': 62, 'w': 69, 'x': 8, 'y': 19, 'z': 20, 'other': 20}
 
     fontspace_link = 'https://www.fontspace.com/list/'
 
@@ -92,12 +94,12 @@ if __name__ == "__main__":
     for letter in tqdm(letter_length_dict, desc=f'Collection Progress'):
         letter_data = []
         letter_length = letter_length_dict[letter]
-        inner_progress = tqdm(range(1, 2), desc=letter, leave=True)
+        inner_progress = tqdm(range(1, letter_length), desc=letter, leave=True)
         for x in inner_progress:
             url = f"{fontspace_link}{letter}?p={x}"
             letter_data.extend(render_letter_fonts(url, browser))
         with open(f"data/{letter}.csv", 'w', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=['name', 'author', 'img', 'license', 'tags'])
+            writer = csv.DictWriter(file, fieldnames=['name', 'author', 'img', 'license', 'downloads', 'tags'])
             writer.writeheader()
             for row in letter_data:
                 try:
@@ -105,6 +107,5 @@ if __name__ == "__main__":
                 except AttributeError:
                     print(f'Failed writing a row to {letter}.csv')
         inner_progress.reset()
-        break
     browser.quit()
     
